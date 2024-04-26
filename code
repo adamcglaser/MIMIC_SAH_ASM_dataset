@@ -1,0 +1,83 @@
+#Function used to generate notes
+
+SELECT diag.HADM_ID, CHARTDATE, CHARTTIME, CATEGORY, DESCRIPTION, TEXT
+FROM `physionet-data.mimiciii_notes.noteevents` note
+    INNER JOIN `physionet-data.mimiciii_clinical.diagnoses_icd` diag
+        on note.subject_id = diag.SUBJECT_ID
+where #subarachnoid ICD9s
+(diag.ICD9_code = '430')
+order by HADM_ID, chartdate, CHARTTIME
+
+#Function used to generate ICU data
+
+select cs.hadm_id, cs.icustay_id , cmo, los_hospital, hospital_expire_flag, first_hosp_stay, los_icu, first_icu_stay, vasonum, RRT.RRT, MechVent, mingcs
+from `physionet-data.mimiciii_derived.code_status` cs
+    inner join `physionet-data.mimiciii_derived.icustay_detail` icu
+        on cs.icustay_id = icu.icustay_id
+    INNER JOIN `physionet-data.mimiciii_clinical.diagnoses_icd` diag
+        on icu.hadm_id = diag.HADM_ID
+    full outer join `physionet-data.mimiciii_derived.vasopressordurations` vpd
+        on cs.icustay_id = vpd.icustay_id
+    full outer join `physionet-data.mimiciii_derived.rrt` rrt
+        on cs.icustay_id = rrt.icustay_id
+    full outer join `physionet-data.mimiciii_derived.ventilation_classification` MV
+        on cs.icustay_id = mv.icustay_id
+    full outer join  `physionet-data.mimiciii_derived.gcs_first_day` gfd
+        on cs.icustay_id = gfd.icustay_id
+where #subarachnoid ICD9s
+((diag.ICD9_code = '430'))
+group by hadm_id, cs.icustay_id , cmo, los_hospital, hospital_expire_flag, first_hosp_stay, los_icu, first_icu_stay, vasonum, rrt, MechVent, mingcs
+order by hadm_ID
+
+#Function used to generate GCS
+
+with complete_table as (
+SELECT diag.ICD9_CODE, diag.hadm_ID, ITEMID, charttime, value
+FROM `physionet-data.mimiciii_clinical.diagnoses_icd` diag
+  INNER JOIN `physionet-data.mimiciii_clinical.chartevents` cha
+    on diag.hadm_id = cha.hadm_id
+  WHERE (diag.ICD9_code = '430') AND (((itemid = 198) or (itemid = 12708) or (itemid = 12827) or (itemid = 12828) or (itemid = 14516) or (itemid = 14517) or (itemid = 14518) or (itemid = 14519) or (itemid = 14688) or (itemid = 14689)or (itemid = 14690)or (itemid = 14691) or (itemid = 15305)))
+  GROUP BY diag.icd9_code, cha.itemid, charttime, diag.hadm_ID, value
+  ORDER BY charttime),
+
+get_GCS as (select hadm_id, charttime, first_value(value)
+    OVER (PARTITION BY hadm_id ORDER BY charttime asc) as admit_GCS
+from complete_table  
+)
+select hadm_id, min(admit_GCS) from get_GCS
+group by hadm_id
+order by hadm_id
+
+#Function used to generate ICD9 codes
+
+select ICD9_CODE, LONG_TITLE
+FROM `physionet-data.mimiciii_clinical.d_icd_diagnoses`
+WHERE (lower(long_title) like '%subarachnoid%')
+ORDER by ICD9_code
+
+#Function used to identify procedures for patients w/ manually selected CPT codes
+
+SELECT diag.ROW_ID, diag.SUBJECT_ID, diag.HADM_ID, CPT_NUMBER
+FROM `physionet-data.mimiciii_clinical.cptevents` cpt
+    INNER JOIN `physionet-data.mimiciii_clinical.diagnoses_icd` diag
+        on cpt.subject_id = diag.SUBJECT_ID
+where #subarachnoid ICD9s
+((diag.ICD9_code = '430')
+AND
+(CPT_NUMBER = 61107 or CPT_NUMBER = 61108 or CPT_NUMBER = 61109 or CPT_NUMBER = 61697 or CPT_NUMBER = 61198 or CPT_NUMBER =61700 or CPT_NUMBER = 61702 or CPT_NUMBER =61703 or CPT_NUMBER =61705 or CPT_NUMBER =34001 or CPT_NUMBER =35001 or CPT_NUMBER =35002 or CPT_NUMBER =35005 or CPT_NUMBER =61624 or CPT_NUMBER =37211 or CPT_NUMBER =37212 or CPT_NUMBER =37213 or CPT_NUMBER =37214 or CPT_NUMBER =75898 or CPT_NUMBER =61640 or CPT_NUMBER =61641 or CPT_NUMBER =61642 or CPT_NUMBER =61645 or CPT_NUMBER =62160 or CPT_NUMBER =62190 or CPT_NUMBER =62192 or CPT_NUMBER =62194 or CPT_NUMBER =62220 or CPT_NUMBER =62223 or CPT_NUMBER =62225 or CPT_NUMBER =62230 or CPT_NUMBER =62256 or CPT_NUMBER =62258 or CPT_NUMBER =63740 or CPT_NUMBER =63741 or CPT_NUMBER =63744 or CPT_NUMBER =63746 or CPT_NUMBER =43246 or CPT_NUMBER =31600))
+group by HADM_ID, row_id, subject_id, cpt_number
+order by HADM_ID
+
+#Function used to identify cohort demographics
+
+select diag.hadm_id, diag.subject_ID, ICD9_CODE, GENDER, DOB, DOD, expire_flag, adm.HOSPITAL_EXPIRE_FLAG, DISCHARGE_LOCATION, ADMITTIME, DISCHTIME, ethnicity
+FROM `physionet-data.mimiciii_clinical.diagnoses_icd` diag
+    INNER JOIN `physionet-data.mimiciii_clinical.admissions` adm
+        on adm.subject_id = diag.SUBJECT_ID
+    INNER JOIN `physionet-data.mimiciii_clinical.patients` pat
+        on pat.subject_id = diag.SUBJECT_ID
+where #subarachnoid ICD9s
+(diag.ICD9_code = '430')
+order by HADM_ID
+
+
